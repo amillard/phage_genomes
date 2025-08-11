@@ -24,6 +24,9 @@
     #table{height:72vh;border-radius:12px}
     .footer{max-width:1100px;margin:12px auto 24px;color:var(--muted);font-size:13px;padding:0 16px}
     a{color:var(--accent)}
+    .progress-wrap{display:flex;flex-direction:column;gap:10px;align-items:center}
+    progress{width:100%;height:16px}
+    .mono{font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
   </style>
 </head>
 <body>
@@ -43,9 +46,11 @@
 </div>
 
 <div class="card">
-  <!-- Loading message -->
-  <div id="loading" style="text-align:center; padding:2em; font-size:1.2em;">
-    ⏳ Loading table… please wait
+  <!-- Loading/progress area -->
+  <div id="loading" class="progress-wrap" style="text-align:center; padding:1.5em;">
+    <div id="loading-text">⏳ Preparing to load…</div>
+    <progress id="loading-bar" max="100" value="0"></progress>
+    <div class="mono" id="loading-detail"></div>
   </div>
   <!-- Table container (hidden until loaded) -->
   <div id="table" style="display:none;"></div>
@@ -67,20 +72,22 @@
 
   // ====== Utilities ======
   const debounce = (fn, ms=200) => { let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms);}; };
-  function setKPI(text){ document.getElementById('kpi').textContent = text; }
+  const el = id => document.getElementById(id);
+  function setKPI(text){ el('kpi').textContent = text; }
+  function setLoading(text, detail=""){ el('loading-text').textContent = text; el('loading-detail').textContent = detail; }
+  function setProgress(pct){ const bar = el('loading-bar'); bar.value = Math.max(0, Math.min(100, pct)); }
+
   function buildColumns(headers){
     return headers.map(h => ({ title: h, field: h, headerSort:true, widthGrow:1, hozAlign:"left", tooltip:true }));
   }
 
   function applyFilters(){
-    const q = document.getElementById('q').value.trim().toLowerCase();
-    const col = document.getElementById('col').value;
-    const val = document.getElementById('val').value.trim().toLowerCase();
+    const q = el('q').value.trim().toLowerCase();
+    const col = el('col').value;
+    const val = el('val').value.trim().toLowerCase();
     const filters = [];
 
-    if(col && val){
-      filters.push({ field: col, type: "like", value: val });
-    }
+    if(col && val){ filters.push({ field: col, type: "like", value: val }); }
 
     if(q){
       table.setFilter(function(row){
@@ -100,60 +107,109 @@
     setKPI(`${visible.toLocaleString()} / ${allData.length.toLocaleString()} rows shown`);
   }
 
-  // ====== Load CSV and init table ======
-  Papa.parse(DATA_URL, {
-    download: true,
-    header: true,
-    dynamicTyping: false,
-    skipEmptyLines: true,
-    worker: true,
-    complete: (results) => {
-      // Hide loading, show table
-      document.getElementById('loading').style.display = 'none';
-      document.getElementById('table').style.display = 'block';
+  // ====== Fetch CSV with byte-level progress (XHR) ======
+  function loadCSVWithProgress(url){
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.responseType = 'text';
 
-      allData = results.data;
-      const headers = results.meta.fields || Object.keys(allData[0] || {});
-      columns = buildColumns(headers);
+      xhr.onprogress = (e) => {
+        if(e.lengthComputable){
+          const pct = Math.round((e.loaded / e.total) * 100);
+          setLoading('Downloading CSV…', `${(e.loaded/1e6).toFixed(2)} / ${(e.total/1e6).toFixed(2)} MB`);
+          setProgress(pct);
+        } else {
+          setLoading('Downloading CSV…', `${(e.loaded/1e6).toFixed(2)} MB`);
+          setProgress(25); // conservative baseline when total unknown
+        }
+      };
 
-      // Populate column filter selector
-      const sel = document.getElementById('col');
-      sel.innerHTML = '<option value="">Filter by column…</option>' + headers.map(h=>`<option value="${h}">${h}</option>`).join('');
+      xhr.onloadstart = () => { setLoading('Starting download…'); setProgress(5); };
+      xhr.onerror = () => reject(new Error('Network error while downloading CSV'));
+      xhr.onload = () => {
+        if(xhr.status >= 200 && xhr.status < 300){ resolve(xhr.responseText); }
+        else reject(new Error(`Failed to load CSV (status ${xhr.status})`));
+      };
+      xhr.send();
+    });
+  }
 
-      // Build table
-      table = new Tabulator('#table', {
-        data: allData,
-        columns,
-        layout: "fitDataStretch",
-        height: "70vh",
-        pagination: true,
-        paginationMode: "local",
-        paginationSize: PAGE_SIZE,
-        paginationSizeSelector: [25, 50, 100, 250, 500],
-        movableColumns: true,
-        placeholder: "No rows match your filters.",
-        virtualDom: true,
-        progressiveRender: true,
-        index: headers[0] || undefined,
+  // ====== Load, parse with Papa (row progress), then init table ======
+  (async function init(){
+    try{
+      const csvText = await loadCSVWithProgress(DATA_URL);
+      setLoading('Parsing CSV…'); setProgress(70);
+
+      let rowsParsed = 0;
+      const parsed = Papa.parse(csvText, {
+        header: true,
+        dynamicTyping: false,
+        skipEmptyLines: true,
+        worker: true,
+        step: () => {
+          rowsParsed++;
+          if(rowsParsed % 1000 === 0){
+            setLoading('Parsing CSV…', `${rowsParsed.toLocaleString()} rows`);
+            // Nudge progress towards 90% while parsing
+            const pct = Math.min(90, 70 + Math.floor(rowsParsed/1000));
+            setProgress(pct);
+          }
+        },
+        complete: (results) => {
+          // Hide loading, show table
+          el('loading').style.display = 'none';
+          el('table').style.display = 'block';
+
+          allData = results.data;
+          const headers = results.meta.fields || Object.keys(allData[0] || {});
+          columns = buildColumns(headers);
+
+          // Populate column filter selector
+          const sel = el('col');
+          sel.innerHTML = '<option value="">Filter by column…</option>' + headers.map(h=>`<option value="${h}">${h}</option>`).join('');
+
+          // Build table
+          table = new Tabulator('#table', {
+            data: allData,
+            columns,
+            layout: "fitDataStretch",
+            height: "70vh",
+            pagination: true,
+            paginationMode: "local",
+            paginationSize: PAGE_SIZE,
+            paginationSizeSelector: [25, 50, 100, 250, 500],
+            movableColumns: true,
+            placeholder: "No rows match your filters.",
+            virtualDom: true,
+            progressiveRender: true,
+            index: headers[0] || undefined,
+          });
+
+          setKPI(`${allData.length.toLocaleString()} rows loaded. Use the search above.`);
+        },
+        error: (err) => {
+          console.error(err);
+          el('loading-text').textContent = '❌ Failed to parse data.csv';
+          setKPI('Failed to parse data.csv.');
+        }
       });
-
-      setKPI(`${allData.length.toLocaleString()} rows loaded. Use the search above.`);
-    },
-    error: (err) => {
+    } catch(err){
       console.error(err);
-      document.getElementById('loading').textContent = '❌ Failed to load data.csv';
+      el('loading-text').textContent = '❌ Failed to load data.csv';
+      el('loading-detail').textContent = err.message || String(err);
       setKPI('Failed to load data.csv — ensure the file exists next to this page.');
     }
-  });
+  })();
 
   // ====== Wire up controls ======
-  document.getElementById('q').addEventListener('input', debounce(applyFilters, 250));
-  document.getElementById('val').addEventListener('input', debounce(applyFilters, 250));
-  document.getElementById('col').addEventListener('change', applyFilters);
-  document.getElementById('clear').addEventListener('click', () => {
-    document.getElementById('q').value = '';
-    document.getElementById('val').value = '';
-    document.getElementById('col').value = '';
+  el('q').addEventListener('input', debounce(applyFilters, 250));
+  el('val').addEventListener('input', debounce(applyFilters, 250));
+  el('col').addEventListener('change', applyFilters);
+  el('clear').addEventListener('click', () => {
+    el('q').value = '';
+    el('val').value = '';
+    el('col').value = '';
     if(table){ table.clearFilter(true); table.setData(allData); setKPI(`${allData.length.toLocaleString()} rows loaded.`); }
   });
 </script>

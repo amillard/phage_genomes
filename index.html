@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Searchable Table (≈37k rows)</title>
+  <title>Searchable Table (~37k rows)</title>
   <!-- Tabulator (table) -->
   <link href="https://unpkg.com/tabulator-tables@5.6.2/dist/css/tabulator.min.css" rel="stylesheet">
   <script src="https://unpkg.com/tabulator-tables@5.6.2/dist/js/tabulator.min.js"></script>
@@ -43,7 +43,12 @@
 </div>
 
 <div class="card">
-  <div id="table"></div>
+  <!-- Loading message -->
+  <div id="loading" style="text-align:center; padding:2em; font-size:1.2em;">
+    ⏳ Loading table… please wait
+  </div>
+  <!-- Table container (hidden until loaded) -->
+  <div id="table" style="display:none;"></div>
 </div>
 
 <div class="footer">
@@ -62,9 +67,7 @@
 
   // ====== Utilities ======
   const debounce = (fn, ms=200) => { let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms);}; };
-
   function setKPI(text){ document.getElementById('kpi').textContent = text; }
-
   function buildColumns(headers){
     return headers.map(h => ({ title: h, field: h, headerSort:true, widthGrow:1, hozAlign:"left", tooltip:true }));
   }
@@ -73,15 +76,12 @@
     const q = document.getElementById('q').value.trim().toLowerCase();
     const col = document.getElementById('col').value;
     const val = document.getElementById('val').value.trim().toLowerCase();
-
     const filters = [];
 
-    // Column-specific contains filter
     if(col && val){
       filters.push({ field: col, type: "like", value: val });
     }
 
-    // Global contains filter (custom function across all fields)
     if(q){
       table.setFilter(function(row){
         const data = row.getData();
@@ -92,11 +92,10 @@
         return false;
       });
     } else {
-      table.clearFilter(true); // true = keep header filters
+      table.clearFilter(true);
       if(filters.length){ table.setFilter(filters); }
     }
 
-    // Update KPI
     const visible = table.getDataCount("active");
     setKPI(`${visible.toLocaleString()} / ${allData.length.toLocaleString()} rows shown`);
   }
@@ -109,6 +108,10 @@
     skipEmptyLines: true,
     worker: true,
     complete: (results) => {
+      // Hide loading, show table
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('table').style.display = 'block';
+
       allData = results.data;
       const headers = results.meta.fields || Object.keys(allData[0] || {});
       columns = buildColumns(headers);
@@ -138,6 +141,7 @@
     },
     error: (err) => {
       console.error(err);
+      document.getElementById('loading').textContent = '❌ Failed to load data.csv';
       setKPI('Failed to load data.csv — ensure the file exists next to this page.');
     }
   });

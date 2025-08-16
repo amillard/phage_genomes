@@ -2,90 +2,78 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>TSV Table (Searchable)</title>
+  <title>Phage Genomes Table</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- DataTables CSS (via CDN) -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"
-  />
-
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"/>
   <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
-    h1 { font-size: 1.4rem; margin: 0 0 12px; }
-    #status { margin: 12px 0; }
-    .wrap { overflow-x: auto; }
-    table.dataTable thead th { white-space: nowrap; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px}
+    h1{font-size:1.4rem;margin:0 0 12px}
+    #status{margin:12px 0}
+    .wrap{overflow-x:auto}
+    table.dataTable thead th{white-space:nowrap}
   </style>
 </head>
 <body>
-  <h1>Data Table</h1>
-  <p>This page loads <code>data.tsv</code> from this repository and makes it searchable.</p>
+  <h1>Phage Genomes</h1>
+  <p>This page loads <code>data.tsv</code> or <code>data.csv</code> from this repository and makes it searchable.</p>
   <div id="status">Loading data…</div>
+  <div class="wrap"><table id="tbl" class="display" style="width:100%"></table></div>
 
-  <div class="wrap">
-    <table id="tsv-table" class="display" style="width:100%"></table>
-  </div>
-
-  <!-- jQuery + DataTables JS (via CDN) -->
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4=" crossorigin="anonymous"></script>
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js" crossorigin="anonymous"></script>
   <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
-
   <script>
-    // If your file has a different name or path, change this:
-    const TSV_URL = 'data.tsv';
+    const candidates = [
+      {url:'data.tsv', delim:'\t'},
+      {url:'data.csv', delim:','}
+    ];
 
-    async function loadTSV(url) {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-      const text = await res.text();
-
-      // Split into lines (handles \n or \r\n)
-      const lines = text.trim().split(/\r?\n/);
-      if (!lines.length) throw new Error('Empty file');
-
-      // First line = header
-      const headers = lines[0].split('\t');
-
-      // Remaining lines = rows
-      const data = [];
-      for (let i = 1; i < lines.length; i++) {
-        const row = lines[i];
-        if (!row.trim()) continue; // skip blank lines
-        const cols = row.split('\t');
-
-        // Pad short rows so lengths match headers
-        while (cols.length < headers.length) cols.push('');
-        data.push(cols.slice(0, headers.length));
-      }
-
-      return { headers, data };
+    async function fetchText(url){
+      const res = await fetch(url, {cache:'no-store'});
+      if(!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+      return await res.text();
     }
 
-    (async function init() {
+    function parseTable(text, delim){
+      const lines = text.replace(/\r/g,'').trim().split('\n').filter(x=>x.trim().length);
+      if(lines.length === 0) throw new Error('Empty file');
+      const headers = lines[0].split(delim);
+      const data = lines.slice(1).map(line => {
+        const cols = line.split(delim);
+        while(cols.length < headers.length) cols.push('');
+        return cols.slice(0, headers.length);
+      });
+      return {headers, data};
+    }
+
+    async function loadFirstAvailable(){
+      let lastErr = null;
+      for(const c of candidates){
+        try{
+          const txt = await fetchText(c.url);
+          const {headers, data} = parseTable(txt, c.delim);
+          return {headers, data, used:c.url};
+        }catch(e){ lastErr = e; }
+      }
+      throw lastErr || new Error('No data file found');
+    }
+
+    (async ()=>{
       const status = document.getElementById('status');
-
-      try {
-        const { headers, data } = await loadTSV(TSV_URL);
-        status.remove();
-
-        // Build DataTables column definitions from headers
-        const columns = headers.map(h => ({ title: h }));
-
-        // Initialize DataTable
-        $('#tsv-table').DataTable({
-          data,
-          columns,
-          pageLength: 25,        // default rows per page
-          deferRender: true,     // speed-up rendering for large datasets
-          processing: true,      // show "Processing..." when filtering
+      try{
+        const {headers, data, used} = await loadFirstAvailable();
+        status.textContent = `Loaded ${used} (${data.length} rows)`;
+        const columns = headers.map(h => ({title:h}));
+        $('#tbl').DataTable({
+          data, columns,
+          pageLength: 25,
+          deferRender: true,
+          processing: true,
           autoWidth: false,
-          scrollX: true,         // horizontal scroll if many columns
-          // Built-in search box appears automatically
+          scrollX: true
         });
-      } catch (err) {
-        status.textContent = `Could not load data.tsv: ${err.message}`;
+      }catch(err){
+        status.textContent = `Could not load data: ${err.message}. Make sure you open this page via GitHub Pages (https://amillard.github.io/phage_genomes/), not github.com.`;
+        console.error(err);
       }
     })();
   </script>

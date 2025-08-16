@@ -2,78 +2,101 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Phage Genomes Table</title>
+  <title>Phage Genomes (TSV)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"/>
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px}
-    h1{font-size:1.4rem;margin:0 0 12px}
-    #status{margin:12px 0}
-    .wrap{overflow-x:auto}
-    table.dataTable thead th{white-space:nowrap}
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 12px; font-size: 1.25rem; }
+    #status { margin: 12px 0; white-space: pre-wrap; }
+    #search { margin: 8px 0 16px; padding: 8px; width: 100%; max-width: 420px; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { border: 1px solid #ddd; padding: 6px 8px; }
+    th { background: #f5f5f5; position: sticky; top: 0; }
+    .wrap { overflow: auto; max-height: 75vh; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <h1>Phage Genomes</h1>
-  <p>This page loads <code>data.tsv</code> or <code>data.csv</code> from this repository and makes it searchable.</p>
-  <div id="status">Loading data…</div>
-  <div class="wrap"><table id="tbl" class="display" style="width:100%"></table></div>
+  <div id="status">Loading…</div>
+  <input id="search" type="search" placeholder="Type to filter rows…" class="hidden" />
+  <div class="wrap"><table id="tbl"></table></div>
 
-  <script src="https://code.jquery.com/jquery-3.7.1.min.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
   <script>
-    const candidates = [
-      {url:'data.tsv', delim:'\t'},
-      {url:'data.csv', delim:','}
-    ];
+    const DATA_URLS = ["data.tsv", "data.csv"]; // tries TSV then CSV
+    const status = document.getElementById('status');
+    const searchBox = document.getElementById('search');
+    const table = document.getElementById('tbl');
 
-    async function fetchText(url){
-      const res = await fetch(url, {cache:'no-store'});
-      if(!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-      return await res.text();
-    }
+    function log(msg){ status.textContent += (status.textContent ? "\n" : "") + msg; }
 
-    function parseTable(text, delim){
-      const lines = text.replace(/\r/g,'').trim().split('\n').filter(x=>x.trim().length);
-      if(lines.length === 0) throw new Error('Empty file');
-      const headers = lines[0].split(delim);
-      const data = lines.slice(1).map(line => {
-        const cols = line.split(delim);
-        while(cols.length < headers.length) cols.push('');
-        return cols.slice(0, headers.length);
-      });
-      return {headers, data};
-    }
-
-    async function loadFirstAvailable(){
-      let lastErr = null;
-      for(const c of candidates){
-        try{
-          const txt = await fetchText(c.url);
-          const {headers, data} = parseTable(txt, c.delim);
-          return {headers, data, used:c.url};
-        }catch(e){ lastErr = e; }
+    async function fetchFirst() {
+      let lastErr;
+      for (const u of DATA_URLS) {
+        try {
+          log(`Trying ${u}…`);
+          const r = await fetch(u, {cache:'no-store'});
+          if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+          return { text: await r.text(), url: u };
+        } catch (e) { lastErr = e; log(`Failed ${u}: ${e.message}`); }
       }
-      throw lastErr || new Error('No data file found');
+      throw lastErr || new Error('No data file found.');
     }
 
-    (async ()=>{
-      const status = document.getElementById('status');
-      try{
-        const {headers, data, used} = await loadFirstAvailable();
-        status.textContent = `Loaded ${used} (${data.length} rows)`;
-        const columns = headers.map(h => ({title:h}));
-        $('#tbl').DataTable({
-          data, columns,
-          pageLength: 25,
-          deferRender: true,
-          processing: true,
-          autoWidth: false,
-          scrollX: true
+    function parseTSVlike(text, delimGuess) {
+      const raw = text.replace(/\r/g, '').trim();
+      const lines = raw.split('\n').filter(Boolean);
+      if (!lines.length) throw new Error('Empty file');
+      const delim = delimGuess || (lines[0].includes('\t') ? '\t' : ',');
+      const header = lines[0].split(delim);
+      const rows = lines.slice(1).map(l => {
+        const cols = l.split(delim);
+        while (cols.length < header.length) cols.push('');
+        return cols.slice(0, header.length);
+      });
+      return { header, rows };
+    }
+
+    function buildTable(header, rows) {
+      const thead = document.createElement('thead');
+      const htr = document.createElement('tr');
+      header.forEach(h => { const th = document.createElement('th'); th.textContent = h; htr.appendChild(th); });
+      thead.appendChild(htr);
+      const tbody = document.createElement('tbody');
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        r.forEach(c => { const td = document.createElement('td'); td.textContent = c; tr.appendChild(td); });
+        tbody.appendChild(tr);
+      });
+      table.replaceChildren(thead, tbody);
+    }
+
+    function wireSearch() {
+      searchBox.classList.remove('hidden');
+      searchBox.addEventListener('input', () => {
+        const q = searchBox.value.toLowerCase();
+        const rows = table.querySelectorAll('tbody tr');
+        let shown = 0;
+        rows.forEach(tr => {
+          const txt = tr.textContent.toLowerCase();
+          const match = txt.includes(q);
+          tr.style.display = match ? '' : 'none';
+          if (match) shown++;
         });
-      }catch(err){
-        status.textContent = `Could not load data: ${err.message}. Make sure you open this page via GitHub Pages (https://amillard.github.io/phage_genomes/), not github.com.`;
-        console.error(err);
+        status.textContent = `Rows: ${rows.length}  |  Showing: ${shown}`;
+      });
+    }
+
+    (async () => {
+      try {
+        const { text, url } = await fetchFirst();
+        const guessDelim = url.endsWith('.tsv') ? '\t' : ',';
+        const { header, rows } = parseTSVlike(text, guessDelim);
+        status.textContent = `Loaded ${url}  (${rows.length} rows, ${header.length} columns)`;
+        buildTable(header, rows);
+        wireSearch();
+      } catch (e) {
+        log(`\n❌ Could not load data: ${e.message}\nChecklist:\n• Make sure the page URL is amillard.github.io (not github.com)\n• Put index.html and data.tsv in the same published folder\n• Ensure the first line of the file is a header row`);
       }
     })();
   </script>

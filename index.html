@@ -24,7 +24,7 @@
 </head>
 <body>
   <h1>Phage Genomes</h1>
-  <p>This page loads <code>data.tsv</code> or <code>data.csv</code> from this repository and makes it searchable.</p>
+  <p>This page loads <code>9Aug2025_data.tsv</code> or <code>data.csv</code> from this repository and makes it searchable.</p>
   <div id="status">Loading…</div>
   <div class="wrap"><table id="tbl" class="display" style="width:100%"></table></div>
 
@@ -71,7 +71,7 @@
       const status = document.getElementById('status');
       try{
         const { headers, data, used } = await loadFirstAvailable();
-        status.textContent = `Loaded ${used} (${data.length} rows)`;
+        status.textContent = `Loaded ${used} (${length} rows)`;
         const columns = headers.map(h => ({ title: h }));
         $('#tbl').DataTable({
           data, columns,
@@ -85,7 +85,7 @@
         status.textContent =
           `❌ Could not load data: ${err.message}\n\n` +
           `Checklist:\n• Open this via Pages (https://amillard.github.io/phage_genomes/)\n` +
-          `• Put index.html + data.tsv (or data.csv) in the same published folder\n` +
+          `• Put index.html + tsv (or csv) in the same published folder\n` +
           `• First line of the file must be a header row`;
       }
     })();

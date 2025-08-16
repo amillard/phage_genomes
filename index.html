@@ -2,91 +2,103 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Phage Genomes Table</title>
+  <title>Phage Genomes (9Aug2025)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <!-- jQuery 3.7.1 with correct SRI -->
-  <script
-    src="https://code.jquery.com/jquery-3.7.1.min.js"
-    integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
-    crossorigin="anonymous"></script>
-
-  <!-- DataTables CSS (version pinned). DataTables’ CDN doesn’t publish stable SRI; omit integrity here. -->
-  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
-
   <style>
-    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px}
-    h1{font-size:1.25rem;margin:0 0 12px}
-    #status{margin:12px 0;white-space:pre-wrap}
-    .wrap{overflow-x:auto}
-    table.dataTable thead th{white-space:nowrap}
+    :root { --bd:#ddd; --bg:#f7f7f7; --fs:14px; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+    h1 { margin: 0 0 12px; font-size: 1.25rem; }
+    #status { margin: 12px 0; white-space: pre-wrap; }
+    #search { margin: 8px 0 16px; padding: 8px; width: 100%; max-width: 420px; font-size: var(--fs); }
+    .wrap { overflow: auto; max-height: 80vh; border: 1px solid var(--bd); border-radius: 8px; }
+    table { border-collapse: collapse; width: 100%; font-size: var(--fs); }
+    th,td { border-bottom: 1px solid var(--bd); padding: 6px 8px; text-align: left; }
+    th { position: sticky; top: 0; background: var(--bg); }
+    .muted { color: #666; font-size: 0.9em; }
   </style>
 </head>
 <body>
-  <h1>Phage Genomes</h1>
-  <p>This page loads <code>9Aug2025_data.tsv</code> or <code>data.csv</code> from this repository and makes it searchable.</p>
+  <h1>Phage Genomes – 9Aug2025 Data</h1>
+  <p class="muted">This page loads <code>9Aug2025_data.tsv</code> from this repository and makes it searchable.</p>
   <div id="status">Loading…</div>
-  <div class="wrap"><table id="tbl" class="display" style="width:100%"></table></div>
-
-  <!-- DataTables JS (version pinned). No SRI due to upstream policy. -->
-  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+  <input id="search" type="search" placeholder="Type to filter rows…" aria-label="Filter table" />
+  <div class="wrap"><table id="tbl"></table></div>
 
   <script>
-    const candidates = [
-      {url:'9Aug2025_data.tsv', delim:'\t'},
-      {url:'data.csv', delim:','}
-    ];
+    // File to load
+    const DATA_FILE = "9Aug2025_data.tsv";
+
+    const statusEl = document.getElementById('status');
+    const searchEl = document.getElementById('search');
+    const tbl = document.getElementById('tbl');
+
+    function log(msg){ statusEl.textContent += (statusEl.textContent ? "\n" : "") + msg; }
 
     async function fetchText(url){
-      const res = await fetch(url, {cache:'no-store'});
-      if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
-      return await res.text();
+      const r = await fetch(url, { cache:"no-store" });
+      if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+      return await r.text();
     }
 
-    function parseTable(text, delim){
-      const lines = text.replace(/\r/g,'').trim().split('\n').filter(x=>x.trim().length);
-      if(!lines.length) throw new Error('Empty file');
+    function sniffDelim(line){
+      if(line.includes("\t")) return "\t";
+      if(line.includes(",")) return ",";
+      return "\t";
+    }
+
+    function parseTable(text, forcedDelim=null){
+      const lines = text.replace(/\r/g,"").split("\n").filter(x=>x.trim().length);
+      if(!lines.length) throw new Error("Empty file");
+      const delim = forcedDelim || sniffDelim(lines[0]);
       const headers = lines[0].split(delim);
-      const data = lines.slice(1).map(line=>{
-        const cols = line.split(delim);
-        while(cols.length < headers.length) cols.push('');
+      const rows = lines.slice(1).map(l=>{
+        const cols = l.split(delim);
+        while(cols.length < headers.length) cols.push("");
         return cols.slice(0, headers.length);
       });
-      return { headers, data };
+      return { headers, rows };
     }
 
-    async function loadFirstAvailable(){
-      let lastErr = null;
-      for(const c of candidates){
-        try{
-          const txt = await fetchText(c.url);
-          const parsed = parseTable(txt, c.delim);
-          return { ...parsed, used:c.url };
-        }catch(e){ lastErr = e; }
-      }
-      throw lastErr || new Error('No data file found');
+    function buildTable(headers, rows){
+      const thead = document.createElement("thead");
+      const htr = document.createElement("tr");
+      headers.forEach(h => { const th = document.createElement("th"); th.textContent = h; htr.appendChild(th); });
+      thead.appendChild(htr);
+
+      const tbody = document.createElement("tbody");
+      rows.forEach(r => {
+        const tr = document.createElement("tr");
+        r.forEach(c => { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); });
+        tbody.appendChild(tr);
+      });
+
+      tbl.replaceChildren(thead, tbody);
     }
 
-    (async ()=>{
-      const status = document.getElementById('status');
-      try{
-        const { headers, data, used } = await loadFirstAvailable();
-        status.textContent = `Loaded ${used} (${length} rows)`;
-        const columns = headers.map(h => ({ title: h }));
-        $('#tbl').DataTable({
-          data, columns,
-          pageLength: 25,
-          deferRender: true,
-          processing: true,
-          autoWidth: false,
-          scrollX: true
+    function wireSearch(){
+      searchEl.addEventListener("input", () => {
+        const q = searchEl.value.toLowerCase();
+        const rows = tbl.querySelectorAll("tbody tr");
+        let shown = 0;
+        rows.forEach(tr => {
+          const ok = tr.textContent.toLowerCase().includes(q);
+          tr.style.display = ok ? "" : "none";
+          if(ok) shown++;
         });
-      }catch(err){
-        status.textContent =
-          `❌ Could not load data: ${err.message}\n\n` +
-          `Checklist:\n• Open this via Pages (https://amillard.github.io/phage_genomes/)\n` +
-          `• Put index.html + tsv (or csv) in the same published folder\n` +
-          `• First line of the file must be a header row`;
+        statusEl.textContent = `Rows: ${rows.length}  |  Showing: ${shown}`;
+      });
+    }
+
+    (async () => {
+      try{
+        log(`Fetching ${DATA_FILE} …`);
+        const text = await fetchText(DATA_FILE);
+        const { headers, rows } = parseTable(text, "\t");
+        statusEl.textContent = `Loaded ${DATA_FILE} (${rows.length} rows, ${headers.length} columns)`;
+        buildTable(headers, rows);
+        wireSearch();
+      }catch(e){
+        log(`❌ Could not load ${DATA_FILE}: ${e.message}\nChecklist:\n• Ensure ${DATA_FILE} is in the same folder as index.html\n• First line must be a header row\n• Open this via Pages (https://amillard.github.io/phage_genomes/)`);
       }
     })();
   </script>

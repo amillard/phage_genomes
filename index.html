@@ -11,10 +11,19 @@
   #status { margin: 6px 0 10px; white-space: pre-wrap; font-size: 0.95rem; color:#333; }
   .controls { display:flex; gap:8px; flex-wrap:wrap; margin: 8px 0 12px; }
   input[type="search"] { padding:8px; font-size:var(--fs); width: min(520px, 100%); }
+  button { padding:8px 12px; font-size:var(--fs); cursor:pointer; }
   .meta { font-size:0.9rem; color:#555; }
   .table-wrap { border:1px solid var(--bd); border-radius:8px; overflow:auto; height:70vh; position:relative; }
   .row { display:table; table-layout:fixed; width:100%; }
   .cell, .headcell { display:table-cell; padding:6px 8px; border-bottom:1px solid var(--bd); vertical-align:top; }
+  .headcell {
+    background:#e0ecff;       /* header colour */
+    font-weight:bold;
+    position:sticky;
+    top:0;
+    z-index:2;
+    border-bottom:2px solid #999;
+  }
   .spacer { height:0px; }
   .muted { color:#777; }
   a { color: #0645ad; text-decoration: underline; }
@@ -26,6 +35,7 @@
 
 <div class="controls">
   <input id="search" type="search" placeholder="Type to filter rows…" aria-label="Filter table" />
+  <button id="download" type="button">Download filtered (.tsv)</button>
   <span id="stats" class="meta"></span>
 </div>
 
@@ -38,9 +48,8 @@
 
 <script>
 /*** CONFIG ***/
-// Use either the plain text file or the gzipped version:
 // const DATA_FILE = "9Aug2025_millardlab_website_table.txt";
-const DATA_FILE = "9Aug2025_millardlab_website_table.txt.gz"; // if you gzip it
+const DATA_FILE = "9Aug2025_millardlab_website_table.txt.gz"; // if gzipped
 /**************/
 
 const $ = sel => document.querySelector(sel);
@@ -63,7 +72,7 @@ let filteredIdx = null;
 let rowHeight = 28;
 const overscan = 10;
 
-/*** FETCH that supports .gz if browser allows ***/
+/*** FETCH with gzip support ***/
 async function fetchTextSmart(url){
   const res = await fetch(url, { cache: "no-store" });
   if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
@@ -75,7 +84,6 @@ async function fetchTextSmart(url){
   }
   return await res.text();
 }
-/***********************************************/
 
 function parseTSV(text){
   const lines = text.replace(/\r/g,'').split('\n');
@@ -117,7 +125,6 @@ function measureRowHeight(){
   r.forEach(v=>{
     const c = document.createElement('div');
     c.className='cell';
-    // allow HTML inside sample too
     c.innerHTML = v;
     sample.appendChild(c);
   });
@@ -126,12 +133,6 @@ function measureRowHeight(){
   vpEl.removeChild(sample);
 }
 
-<div class="controls">
-  <input id="search" type="search" placeholder="Type to filter rows…" aria-label="Filter table" />
-  <button id="download" type="button">Download filtered (.tsv)</button>
-  <span id="stats" class="meta"></span>
-</div>
-  
 function getActiveIndexList(){
   return filteredIdx ?? rows.map((_,i)=>i);
 }
@@ -158,7 +159,6 @@ function renderWindow(){
     for (let j=0;j<headers.length;j++){
       const cell = document.createElement('div');
       cell.className='cell';
-      // ✅ render as HTML so <a href=...> links display correctly
       cell.innerHTML = r[j] ?? '';
       rowDiv.appendChild(cell);
     }
@@ -183,10 +183,59 @@ function applyFilter(q){
   renderWindow();
 }
 
+/*** DOWNLOAD filtered rows ***/
+function cellToText(cellHtml){
+  if (!cellHtml) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = cellHtml;
+  const a = tmp.querySelector('a');
+  if (a && a.getAttribute('href')) return a.href.trim();
+  return tmp.textContent.trim();
+}
+
+function buildTSV(headers, rowIdxList){
+  const parts = [];
+  parts.push(headers.join('\t'));
+  for (const i of rowIdxList){
+    const r = rows[i];
+    const cols = [];
+    for (let j=0; j<headers.length; j++){
+      const val = cellToText(r[j] ?? '');
+      cols.push(val.replace(/\t/g,' ').replace(/\r?\n/g,' '));
+    }
+    parts.push(cols.join('\t'));
+  }
+  return parts.join('\n');
+}
+
+function downloadFilteredTSV(){
+  const idxList = getActiveIndexList();
+  if (!idxList.length){
+    alert('No rows to download.');
+    return;
+  }
+  const tsv = buildTSV(headers, idxList);
+  const blob = new Blob([tsv], { type: 'text/tab-separated-values;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const ts = new Date().toISOString().slice(0,10);
+  const fname = `phage_genomes_filtered_${ts}.tsv`;
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/*** EVENT LISTENERS ***/
 viewEl.addEventListener('scroll', () => { requestAnimationFrame(renderWindow); });
 const debouncedFilter = debounce((ev)=>applyFilter(ev.target.value), 200);
 searchEl.addEventListener('input', debouncedFilter);
+document.getElementById('download').addEventListener('click', downloadFilteredTSV);
 
+/*** INIT ***/
 (async () => {
   try {
     log(`Fetching ${DATA_FILE} …`);

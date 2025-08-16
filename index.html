@@ -1,106 +1,171 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Phage Genomes (9Aug2025)</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    :root { --bd:#ddd; --bg:#f7f7f7; --fs:14px; }
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
-    h1 { margin: 0 0 12px; font-size: 1.25rem; }
-    #status { margin: 12px 0; white-space: pre-wrap; }
-    #search { margin: 8px 0 16px; padding: 8px; width: 100%; max-width: 420px; font-size: var(--fs); }
-    .wrap { overflow: auto; max-height: 80vh; border: 1px solid var(--bd); border-radius: 8px; }
-    table { border-collapse: collapse; width: 100%; font-size: var(--fs); }
-    th,td { border-bottom: 1px solid var(--bd); padding: 6px 8px; text-align: left; }
-    th { position: sticky; top: 0; background: var(--bg); }
-    .muted { color: #666; font-size: 0.9em; }
-  </style>
+<meta charset="utf-8" />
+<title>Phage Genomes (Fast TSV Viewer)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --bd:#ddd; --bg:#f7f7f7; --fs:14px; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+  h1 { margin: 0 0 8px; font-size: 1.1rem; }
+  #status { margin: 6px 0 10px; white-space: pre-wrap; font-size: 0.95rem; color:#333; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; margin: 8px 0 12px; }
+  input[type="search"] { padding:8px; font-size:var(--fs); width: min(520px, 100%); }
+  .meta { font-size:0.9rem; color:#555; }
+  .table-wrap { border:1px solid var(--bd); border-radius:8px; overflow:auto; height:70vh; position:relative; }
+  table { border-collapse:separate; border-spacing:0; width:100%; font-size:var(--fs); }
+  thead th { position: sticky; top: 0; background: var(--bg); border-bottom:1px solid var(--bd); text-align:left; padding:6px 8px; z-index:1; }
+  .row { display:table; table-layout:fixed; width:100%; }
+  .cell, .headcell { display:table-cell; padding:6px 8px; border-bottom:1px solid var(--bd); vertical-align:top; }
+  .spacer { height:0px; }
+  .cols { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; }
+  .muted { color:#777; }
+  .chip { background:#eef; border:1px solid #cde; border-radius:999px; padding:2px 8px; font-size:12px; }
+</style>
 </head>
 <body>
-  <h1>Phage Genomes – 9Aug2025 Data</h1>
-  <p class="muted">This page loads <code>9Aug2025_data.tsv</code> from this repository and makes it searchable.</p>
-  <div id="status">Loading…</div>
-  <input id="search" type="search" placeholder="Type to filter rows…" aria-label="Filter table" />
-  <div class="wrap"><table id="tbl"></table></div>
+<h1>Phage Genomes – 9Aug2025</h1>
+<div id="status">Preparing…</div>
 
-  <script>
-    // File to load
-    const DATA_FILE = "9Aug2025_data.tsv";
+<div class="controls">
+  <input id="search" type="search" placeholder="Type to filter rows (debounced)…" aria-label="Filter table" />
+  <span id="stats" class="meta"></span>
+  <span id="hint" class="meta muted">Tip: compress as <span class="chip">.tsv.gz</span> for faster downloads.</span>
+</div>
 
-    const statusEl = document.getElementById('status');
-    const searchEl = document.getElementById('search');
-    const tbl = document.getElementById('tbl');
+<div class="table-wrap" id="view">
+  <div id="header" class="row"></div>
+  <!-- Virtualized space: we render only visible rows -->
+  <div id="top-spacer" class="spacer"></div>
+  <div id="viewport"></div>
+  <div id="bottom-spacer" class="spacer"></div>
+</div>
 
-    function log(msg){ statusEl.textContent += (statusEl.textContent ? "\n" : "") + msg; }
+<script>
+/*** CONFIG ***/
+const DATA_FILE = "9Aug2025_data.tsv"; // or "9Aug2025_data.tsv.gz"
+/**************/
 
-    async function fetchText(url){
-      const r = await fetch(url, { cache:"no-store" });
-      if(!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
-      return await r.text();
+/* Optional tiny gunzip via fflate (minified) to support .tsv.gz without CDNs).
+   If you don’t plan to use .gz, you can delete this block to shrink file size. */
+const fflate = (()=>{function n(n){return new Uint8Array(n)}function t(n){return n instanceof Uint8Array?n:new Uint8Array(n)}function e(n){let t=0;for(let e=0;e<n.length;e++)t+=n[e].length;let r=new Uint8Array(t),i=0;for(let t=0;t<n.length;t++){r.set(n[t],i);i+=n[t].length}return r}function r(r){let i=r[0]|r[1]<<8|r[2]<<16|r[3]<<24,o=r[4]|r[5]<<8,a=r[6]|r[7]<<8;if((i&65535)!=8075)throw new Error("Invalid GZIP");let s=10,c=8==(i>>8&255);if(i>>9&1)s+=2;let f=i>>10&1;if(i>>11&1){for(;r[s++];);}if(i>>12&1){let n=r.indexOf(0,s);s=n+1}if(f){for(;r[s++];);}let l=r.subarray(s,r.length-8);let u=(function(n){let t=new Inflator;return t.push(n,!0),t.result})(l);if(u.length!==a){}return u}class Inflator{constructor(){this.ondata=null,this.result=new Uint8Array(0),this.p=[]}push(n,t){this.p.push(n),t&&(this.result=e(this.p),this.p=[])}get result(){return this._r}set result(n){this._r=n}}return{gunzip:r}})();
+
+/* Utils */
+const $ = sel => document.querySelector(sel);
+const statusEl = $('#status');
+const statsEl  = $('#stats');
+const searchEl = $('#search');
+const viewEl   = $('#view');
+const headEl   = $('#header');
+const vpEl     = $('#viewport');
+const topSpacer= $('#top-spacer');
+const botSpacer= $('#bottom-spacer');
+
+function log(msg){ statusEl.textContent = msg; }
+function fmt(num){ return num.toLocaleString(); }
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
+
+let headers = [];
+let rows = [];          // full dataset (array of arrays)
+let filteredIdx = null; // array of indices into rows
+let rowHeight = 28;     // will be measured after first render
+const overscan = 10;
+
+/* Streaming fetch + parse */
+async function fetchArrayBuffer(url){
+  const res = await fetch(url,{cache:'no-store'});
+  if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+  return await res.arrayBuffer();
+}
+async function fetchTextStream(url, onProgress){
+  // If .gz, gunzip locally; else stream text directly
+  if (url.endsWith('.gz')) {
+    const buf = await fetchArrayBuffer(url);
+    const u8 = new Uint8Array(buf);
+    const decompressed = fflate.gunzip(u8); // returns Uint8Array
+    const text = new TextDecoder().decode(decompressed);
+    return text;
+  } else if ('ReadableStream' in window && Response.prototype.body) {
+    const res = await fetch(url, {cache:'no-store'});
+    if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+    const contentLen = Number(res.headers.get('Content-Length')) || 0;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let received = 0, chunks = [];
+    for(;;){
+      const {done, value} = await reader.read();
+      if(done) break;
+      received += value.byteLength;
+      chunks.push(decoder.decode(value, {stream:true}));
+      if (contentLen && onProgress) onProgress(received, contentLen);
     }
+    chunks.push(decoder.decode());
+    return chunks.join('');
+  } else {
+    // Fallback
+    const res = await fetch(url,{cache:'no-store'});
+    if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+    return await res.text();
+  }
+}
 
-    function sniffDelim(line){
-      if(line.includes("\t")) return "\t";
-      if(line.includes(",")) return ",";
-      return "\t";
-    }
+function parseTSV(text){
+  const lines = text.replace(/\r/g,'').split('\n');
+  // header
+  while(lines.length && !lines[0].trim()) lines.shift();
+  if(!lines.length) throw new Error('Empty file');
+  headers = lines[0].split('\t');
+  const out = [];
+  for (let i=1;i<lines.length;i++){
+    const L = lines[i];
+    if (!L) continue;
+    const cols = L.split('\t');
+    // pad/truncate
+    while (cols.length < headers.length) cols.push('');
+    out.push(cols.slice(0, headers.length));
+  }
+  return out;
+}
 
-    function parseTable(text, forcedDelim=null){
-      const lines = text.replace(/\r/g,"").split("\n").filter(x=>x.trim().length);
-      if(!lines.length) throw new Error("Empty file");
-      const delim = forcedDelim || sniffDelim(lines[0]);
-      const headers = lines[0].split(delim);
-      const rows = lines.slice(1).map(l=>{
-        const cols = l.split(delim);
-        while(cols.length < headers.length) cols.push("");
-        return cols.slice(0, headers.length);
-      });
-      return { headers, rows };
-    }
+/* Virtualized rendering */
+function renderHeader(){
+  headEl.className = 'row';
+  headEl.innerHTML = '';
+  headers.forEach(h=>{
+    const d = document.createElement('div');
+    d.className='headcell';
+    d.textContent = h;
+    headEl.appendChild(d);
+  });
+  // turn header into grid to distribute columns evenly
+  headEl.style.display = 'grid';
+  headEl.style.gridAutoFlow = 'column';
+  headEl.style.gridAutoColumns = '1fr';
+}
 
-    function buildTable(headers, rows){
-      const thead = document.createElement("thead");
-      const htr = document.createElement("tr");
-      headers.forEach(h => { const th = document.createElement("th"); th.textContent = h; htr.appendChild(th); });
-      thead.appendChild(htr);
+function measureRowHeight(){
+  // render one sample row to estimate height
+  const sample = document.createElement('div');
+  sample.className='row';
+  sample.style.display='grid';
+  sample.style.gridAutoFlow='column';
+  sample.style.gridAutoColumns='1fr';
+  const r = rows[0] || headers.map(()=>'-');
+  r.forEach(v=>{
+    const c = document.createElement('div');
+    c.className='cell';
+    c.textContent = v;
+    sample.appendChild(c);
+  });
+  vpEl.appendChild(sample);
+  const h = sample.getBoundingClientRect().height || rowHeight;
+  rowHeight = Math.ceil(h);
+  vpEl.removeChild(sample);
+}
 
-      const tbody = document.createElement("tbody");
-      rows.forEach(r => {
-        const tr = document.createElement("tr");
-        r.forEach(c => { const td = document.createElement("td"); td.textContent = c; tr.appendChild(td); });
-        tbody.appendChild(tr);
-      });
+function getActiveIndexList(){
+  return filteredIdx ?? rows.map((_,i)=>i);
+}
 
-      tbl.replaceChildren(thead, tbody);
-    }
-
-    function wireSearch(){
-      searchEl.addEventListener("input", () => {
-        const q = searchEl.value.toLowerCase();
-        const rows = tbl.querySelectorAll("tbody tr");
-        let shown = 0;
-        rows.forEach(tr => {
-          const ok = tr.textContent.toLowerCase().includes(q);
-          tr.style.display = ok ? "" : "none";
-          if(ok) shown++;
-        });
-        statusEl.textContent = `Rows: ${rows.length}  |  Showing: ${shown}`;
-      });
-    }
-
-    (async () => {
-      try{
-        log(`Fetching ${DATA_FILE} …`);
-        const text = await fetchText(DATA_FILE);
-        const { headers, rows } = parseTable(text, "\t");
-        statusEl.textContent = `Loaded ${DATA_FILE} (${rows.length} rows, ${headers.length} columns)`;
-        buildTable(headers, rows);
-        wireSearch();
-      }catch(e){
-        log(`❌ Could not load ${DATA_FILE}: ${e.message}\nChecklist:\n• Ensure ${DATA_FILE} is in the same folder as index.html\n• First line must be a header row\n• Open this via Pages (https://amillard.github.io/phage_genomes/)`);
-      }
-    })();
-  </script>
-</body>
-</html>
+function renderWindow(){
+  const idxList = getActiveIn

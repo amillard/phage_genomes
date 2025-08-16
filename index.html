@@ -126,6 +126,12 @@ function measureRowHeight(){
   vpEl.removeChild(sample);
 }
 
+<div class="controls">
+  <input id="search" type="search" placeholder="Type to filter rows…" aria-label="Filter table" />
+  <button id="download" type="button">Download filtered (.tsv)</button>
+  <span id="stats" class="meta"></span>
+</div>
+  
 function getActiveIndexList(){
   return filteredIdx ?? rows.map((_,i)=>i);
 }

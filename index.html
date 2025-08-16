@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Phage Genomes (9Aug2025 Millard Lab)</title>
+<title>Phage Genomes  Updated Code </title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root { --bd:#ddd; --bg:#f7f7f7; --fs:14px; }
@@ -13,8 +13,6 @@
   input[type="search"] { padding:8px; font-size:var(--fs); width: min(520px, 100%); }
   .meta { font-size:0.9rem; color:#555; }
   .table-wrap { border:1px solid var(--bd); border-radius:8px; overflow:auto; height:70vh; position:relative; }
-  table { border-collapse:separate; border-spacing:0; width:100%; font-size:var(--fs); }
-  thead th { position: sticky; top: 0; background: var(--bg); border-bottom:1px solid var(--bd); text-align:left; padding:6px 8px; z-index:1; }
   .row { display:table; table-layout:fixed; width:100%; }
   .cell, .headcell { display:table-cell; padding:6px 8px; border-bottom:1px solid var(--bd); vertical-align:top; }
   .spacer { height:0px; }
@@ -39,7 +37,9 @@
 
 <script>
 /*** CONFIG ***/
-const DATA_FILE = "9Aug2025_millardlab_website_table.txt";
+// You can point this to either the plain file or the gzipped one
+// e.g. "9Aug2025_millardlab_website_table.txt.gz" (recommended)
+const DATA_FILE = "9Aug2025_millardlab_website_table.txt.gz";
 /**************/
 
 const $ = sel => document.querySelector(sel);
@@ -62,11 +62,22 @@ let filteredIdx = null;
 let rowHeight = 28;
 const overscan = 10;
 
-async function fetchText(url){
-  const res = await fetch(url,{cache:'no-store'});
+/*** UPDATED FETCH that supports .gz ***/
+async function fetchTextSmart(url){
+  const res = await fetch(url, { cache: "no-store" });
   if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
+
+  // If gzipped and browser supports DecompressionStream, decompress
+  if (url.endsWith(".gz") && "DecompressionStream" in window) {
+    const ds = new DecompressionStream("gzip");
+    const decompressed = res.body.pipeThrough(ds);
+    return await new Response(decompressed).text();
+  }
+
+  // Fallback: plain text
   return await res.text();
 }
+/***************************************/
 
 function parseTSV(text){
   const lines = text.replace(/\r/g,'').split('\n');
@@ -128,11 +139,8 @@ function renderWindow(){
   const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
   const end = Math.min(total, Math.ceil((scrollTop + innerHeight) / rowHeight) + overscan);
 
-  const before = start * rowHeight;
-  const after  = (total - end) * rowHeight;
-
-  topSpacer.style.height = before + 'px';
-  botSpacer.style.height = after  + 'px';
+  topSpacer.style.height = (start * rowHeight) + 'px';
+  botSpacer.style.height = ((total - end) * rowHeight) + 'px';
 
   const frag = document.createDocumentFragment();
   for (let i=start; i<end; i++){
@@ -176,7 +184,7 @@ searchEl.addEventListener('input', debouncedFilter);
 (async () => {
   try {
     log(`Fetching ${DATA_FILE} …`);
-    const text = await fetchText(DATA_FILE);
+    const text = await fetchTextSmart(DATA_FILE);
     log('Parsing…');
     rows = parseTSV(text);
     renderHeader();

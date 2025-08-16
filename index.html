@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Phage Genomes (Fast TSV Viewer)</title>
+<title>Phage Genomes (9Aug2025 Millard Lab)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root { --bd:#ddd; --bg:#f7f7f7; --fs:14px; }
@@ -18,24 +18,20 @@
   .row { display:table; table-layout:fixed; width:100%; }
   .cell, .headcell { display:table-cell; padding:6px 8px; border-bottom:1px solid var(--bd); vertical-align:top; }
   .spacer { height:0px; }
-  .cols { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; }
   .muted { color:#777; }
-  .chip { background:#eef; border:1px solid #cde; border-radius:999px; padding:2px 8px; font-size:12px; }
 </style>
 </head>
 <body>
-<h1>Phage Genomes – 9Aug2025</h1>
-<div id="status">Preparing…</div>
+<h1>Phage Genomes – 9Aug2025 Millard Lab</h1>
+<div id="status">Loading…</div>
 
 <div class="controls">
-  <input id="search" type="search" placeholder="Type to filter rows (debounced)…" aria-label="Filter table" />
+  <input id="search" type="search" placeholder="Type to filter rows…" aria-label="Filter table" />
   <span id="stats" class="meta"></span>
-  <span id="hint" class="meta muted">Tip: compress as <span class="chip">.tsv.gz</span> for faster downloads.</span>
 </div>
 
 <div class="table-wrap" id="view">
   <div id="header" class="row"></div>
-  <!-- Virtualized space: we render only visible rows -->
   <div id="top-spacer" class="spacer"></div>
   <div id="viewport"></div>
   <div id="bottom-spacer" class="spacer"></div>
@@ -43,14 +39,9 @@
 
 <script>
 /*** CONFIG ***/
-const DATA_FILE = "9Aug2025_data.tsv"; // or "9Aug2025_data.tsv.gz"
+const DATA_FILE = "9Aug2025_millardlab_website_table.txt";
 /**************/
 
-/* Optional tiny gunzip via fflate (minified) to support .tsv.gz without CDNs).
-   If you don’t plan to use .gz, you can delete this block to shrink file size. */
-const fflate = (()=>{function n(n){return new Uint8Array(n)}function t(n){return n instanceof Uint8Array?n:new Uint8Array(n)}function e(n){let t=0;for(let e=0;e<n.length;e++)t+=n[e].length;let r=new Uint8Array(t),i=0;for(let t=0;t<n.length;t++){r.set(n[t],i);i+=n[t].length}return r}function r(r){let i=r[0]|r[1]<<8|r[2]<<16|r[3]<<24,o=r[4]|r[5]<<8,a=r[6]|r[7]<<8;if((i&65535)!=8075)throw new Error("Invalid GZIP");let s=10,c=8==(i>>8&255);if(i>>9&1)s+=2;let f=i>>10&1;if(i>>11&1){for(;r[s++];);}if(i>>12&1){let n=r.indexOf(0,s);s=n+1}if(f){for(;r[s++];);}let l=r.subarray(s,r.length-8);let u=(function(n){let t=new Inflator;return t.push(n,!0),t.result})(l);if(u.length!==a){}return u}class Inflator{constructor(){this.ondata=null,this.result=new Uint8Array(0),this.p=[]}push(n,t){this.p.push(n),t&&(this.result=e(this.p),this.p=[])}get result(){return this._r}set result(n){this._r=n}}return{gunzip:r}})();
-
-/* Utils */
 const $ = sel => document.querySelector(sel);
 const statusEl = $('#status');
 const statsEl  = $('#stats');
@@ -66,68 +57,33 @@ function fmt(num){ return num.toLocaleString(); }
 function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; }
 
 let headers = [];
-let rows = [];          // full dataset (array of arrays)
-let filteredIdx = null; // array of indices into rows
-let rowHeight = 28;     // will be measured after first render
+let rows = [];
+let filteredIdx = null;
+let rowHeight = 28;
 const overscan = 10;
 
-/* Streaming fetch + parse */
-async function fetchArrayBuffer(url){
+async function fetchText(url){
   const res = await fetch(url,{cache:'no-store'});
   if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
-  return await res.arrayBuffer();
-}
-async function fetchTextStream(url, onProgress){
-  // If .gz, gunzip locally; else stream text directly
-  if (url.endsWith('.gz')) {
-    const buf = await fetchArrayBuffer(url);
-    const u8 = new Uint8Array(buf);
-    const decompressed = fflate.gunzip(u8); // returns Uint8Array
-    const text = new TextDecoder().decode(decompressed);
-    return text;
-  } else if ('ReadableStream' in window && Response.prototype.body) {
-    const res = await fetch(url, {cache:'no-store'});
-    if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
-    const contentLen = Number(res.headers.get('Content-Length')) || 0;
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let received = 0, chunks = [];
-    for(;;){
-      const {done, value} = await reader.read();
-      if(done) break;
-      received += value.byteLength;
-      chunks.push(decoder.decode(value, {stream:true}));
-      if (contentLen && onProgress) onProgress(received, contentLen);
-    }
-    chunks.push(decoder.decode());
-    return chunks.join('');
-  } else {
-    // Fallback
-    const res = await fetch(url,{cache:'no-store'});
-    if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
-    return await res.text();
-  }
+  return await res.text();
 }
 
 function parseTSV(text){
   const lines = text.replace(/\r/g,'').split('\n');
-  // header
   while(lines.length && !lines[0].trim()) lines.shift();
   if(!lines.length) throw new Error('Empty file');
-  headers = lines[0].split('\t');
+  headers = lines[0].split(/\t/);
   const out = [];
   for (let i=1;i<lines.length;i++){
     const L = lines[i];
     if (!L) continue;
-    const cols = L.split('\t');
-    // pad/truncate
+    const cols = L.split(/\t/);
     while (cols.length < headers.length) cols.push('');
     out.push(cols.slice(0, headers.length));
   }
   return out;
 }
 
-/* Virtualized rendering */
 function renderHeader(){
   headEl.className = 'row';
   headEl.innerHTML = '';
@@ -137,14 +93,12 @@ function renderHeader(){
     d.textContent = h;
     headEl.appendChild(d);
   });
-  // turn header into grid to distribute columns evenly
-  headEl.style.display = 'grid';
-  headEl.style.gridAutoFlow = 'column';
-  headEl.style.gridAutoColumns = '1fr';
+  headEl.style.display='grid';
+  headEl.style.gridAutoFlow='column';
+  headEl.style.gridAutoColumns='1fr';
 }
 
 function measureRowHeight(){
-  // render one sample row to estimate height
   const sample = document.createElement('div');
   sample.className='row';
   sample.style.display='grid';
@@ -158,8 +112,7 @@ function measureRowHeight(){
     sample.appendChild(c);
   });
   vpEl.appendChild(sample);
-  const h = sample.getBoundingClientRect().height || rowHeight;
-  rowHeight = Math.ceil(h);
+  rowHeight = Math.ceil(sample.getBoundingClientRect().height || rowHeight);
   vpEl.removeChild(sample);
 }
 
@@ -168,4 +121,72 @@ function getActiveIndexList(){
 }
 
 function renderWindow(){
-  const idxList = getActiveIn
+  const idxList = getActiveIndexList();
+  const total = idxList.length;
+  const scrollTop = viewEl.scrollTop - headEl.offsetHeight;
+  const innerHeight = viewEl.clientHeight - headEl.offsetHeight;
+  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
+  const end = Math.min(total, Math.ceil((scrollTop + innerHeight) / rowHeight) + overscan);
+
+  const before = start * rowHeight;
+  const after  = (total - end) * rowHeight;
+
+  topSpacer.style.height = before + 'px';
+  botSpacer.style.height = after  + 'px';
+
+  const frag = document.createDocumentFragment();
+  for (let i=start; i<end; i++){
+    const r = rows[idxList[i]];
+    const rowDiv = document.createElement('div');
+    rowDiv.className='row';
+    rowDiv.style.display='grid';
+    rowDiv.style.gridAutoFlow='column';
+    rowDiv.style.gridAutoColumns='1fr';
+    for (let j=0;j<headers.length;j++){
+      const cell = document.createElement('div');
+      cell.className='cell';
+      cell.textContent = r[j] ?? '';
+      rowDiv.appendChild(cell);
+    }
+    frag.appendChild(rowDiv);
+  }
+  vpEl.replaceChildren(frag);
+
+  statsEl.textContent = `Rows: ${fmt(rows.length)} | Showing: ${fmt(total)} | Visible: ${fmt(end-start)}`;
+}
+
+function applyFilter(q){
+  if (!q) { filteredIdx = null; renderWindow(); return; }
+  const needle = q.toLowerCase();
+  const out = [];
+  for (let i=0;i<rows.length;i++){
+    const r = rows[i];
+    if ((r._j ?? (r._j = r.join('\t').toLowerCase())).includes(needle)){
+      out.push(i);
+    }
+  }
+  filteredIdx = out;
+  renderWindow();
+}
+
+viewEl.addEventListener('scroll', () => { requestAnimationFrame(renderWindow); });
+const debouncedFilter = debounce((ev)=>applyFilter(ev.target.value), 200);
+searchEl.addEventListener('input', debouncedFilter);
+
+(async () => {
+  try {
+    log(`Fetching ${DATA_FILE} …`);
+    const text = await fetchText(DATA_FILE);
+    log('Parsing…');
+    rows = parseTSV(text);
+    renderHeader();
+    measureRowHeight();
+    renderWindow();
+    log(`Loaded ${DATA_FILE} – ${fmt(rows.length)} rows, ${headers.length} columns. Scroll to browse; use search to filter.`);
+  } catch (e) {
+    log(`❌ Could not load ${DATA_FILE}: ${e.message}\nChecklist:\n• Ensure ${DATA_FILE} is in the same folder as index.html\n• First line is a header row`);
+  }
+})();
+</script>
+</body>
+</html>

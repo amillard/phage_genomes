@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Phage Genomes  Updated Code </title>
+<title>Phage Genomes (9Aug2025 Millard Lab)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root { --bd:#ddd; --bg:#f7f7f7; --fs:14px; }
@@ -17,6 +17,7 @@
   .cell, .headcell { display:table-cell; padding:6px 8px; border-bottom:1px solid var(--bd); vertical-align:top; }
   .spacer { height:0px; }
   .muted { color:#777; }
+  a { color: #0645ad; text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -37,9 +38,9 @@
 
 <script>
 /*** CONFIG ***/
-// You can point this to either the plain file or the gzipped one
-// e.g. "9Aug2025_millardlab_website_table.txt.gz" (recommended)
-const DATA_FILE = "9Aug2025_millardlab_website_table.txt.gz";
+// Use either the plain text file or the gzipped version:
+const DATA_FILE = "9Aug2025_millardlab_website_table.txt";
+// const DATA_FILE = "9Aug2025_millardlab_website_table.txt.gz"; // if you gzip it
 /**************/
 
 const $ = sel => document.querySelector(sel);
@@ -62,22 +63,19 @@ let filteredIdx = null;
 let rowHeight = 28;
 const overscan = 10;
 
-/*** UPDATED FETCH that supports .gz ***/
+/*** FETCH that supports .gz if browser allows ***/
 async function fetchTextSmart(url){
   const res = await fetch(url, { cache: "no-store" });
   if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${url}`);
 
-  // If gzipped and browser supports DecompressionStream, decompress
   if (url.endsWith(".gz") && "DecompressionStream" in window) {
     const ds = new DecompressionStream("gzip");
     const decompressed = res.body.pipeThrough(ds);
     return await new Response(decompressed).text();
   }
-
-  // Fallback: plain text
   return await res.text();
 }
-/***************************************/
+/***********************************************/
 
 function parseTSV(text){
   const lines = text.replace(/\r/g,'').split('\n');
@@ -119,7 +117,8 @@ function measureRowHeight(){
   r.forEach(v=>{
     const c = document.createElement('div');
     c.className='cell';
-    c.textContent = v;
+    // allow HTML inside sample too
+    c.innerHTML = v;
     sample.appendChild(c);
   });
   vpEl.appendChild(sample);
@@ -153,7 +152,8 @@ function renderWindow(){
     for (let j=0;j<headers.length;j++){
       const cell = document.createElement('div');
       cell.className='cell';
-      cell.textContent = r[j] ?? '';
+      // ✅ render as HTML so <a href=...> links display correctly
+      cell.innerHTML = r[j] ?? '';
       rowDiv.appendChild(cell);
     }
     frag.appendChild(rowDiv);

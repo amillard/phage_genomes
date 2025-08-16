@@ -2,71 +2,92 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <title>TSV Table (Searchable)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Searchable Table (~37k rows)</title>
-  <link href="https://unpkg.com/tabulator-tables@5.6.2/dist/css/tabulator.min.css" rel="stylesheet">
-  <script src="https://unpkg.com/tabulator-tables@5.6.2/dist/js/tabulator.min.js"></script>
-  <script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <!-- DataTables CSS (via CDN) -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css"
+  />
+
   <style>
-    :root{--bg:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--accent:#60a5fa}
-    body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
-    header{padding:24px 16px 12px;max-width:1100px;margin:0 auto}
-    h1{margin:0 0 6px;font-size:28px}
-    p.sub{margin:0;color:var(--muted)}
-    .card{background:var(--card);border:1px solid #1f2937;border-radius:16px;max-width:1100px;margin:16px auto;padding:14px}
-    .controls{display:grid;grid-template-columns:1fr 220px 1fr auto;gap:10px;align-items:center}
-    .controls input,.controls select,.controls button{padding:10px 12px;border-radius:12px;border:1px solid #374151;background:#0b1220;color:var(--text)}
-    .controls button{cursor:pointer}
-    .kpi{display:flex;gap:20px;align-items:center;font-size:14px;color:var(--muted)}
-    #table{height:72vh;border-radius:12px}
-    .footer{max-width:1100px;margin:12px auto 24px;color:var(--muted);font-size:13px;padding:0 16px}
-    .progress-wrap{display:flex;flex-direction:column;gap:10px;align-items:center}
-    progress{width:100%;height:16px}
-    .mono{font-family: ui-monospace,monospace}
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; }
+    h1 { font-size: 1.4rem; margin: 0 0 12px; }
+    #status { margin: 12px 0; }
+    .wrap { overflow-x: auto; }
+    table.dataTable thead th { white-space: nowrap; }
   </style>
 </head>
 <body>
-<header>
-  <h1>Big Table Viewer</h1>
-  <p class="sub">Static page for large TSVs (~37k rows). Type to filter rows instantly. Host anywhere (e.g. GitHub Pages).</p>
-</header>
-<div class="card">
-  <div class="controls">
-    <input id="q" placeholder="Quick search (all columns)" />
-    <select id="col"></select>
-    <input id="val" placeholder="Column filter (contains)" />
-    <button id="clear">Clear</button>
+  <h1>Data Table</h1>
+  <p>This page loads <code>data.tsv</code> from this repository and makes it searchable.</p>
+  <div id="status">Loading data…</div>
+
+  <div class="wrap">
+    <table id="tsv-table" class="display" style="width:100%"></table>
   </div>
-  <div class="kpi" id="kpi">Loading…</div>
-</div>
-<div class="card">
-  <div id="loading" class="progress-wrap" style="text-align:center; padding:1.5em;">
-    <div id="loading-text">⏳ Preparing to load…</div>
-    <progress id="loading-bar" max="100" value="0"></progress>
-    <div class="mono" id="loading-detail"></div>
-  </div>
-  <div id="table" style="display:none;"></div>
-</div>
-<div class="footer">
-  <p><strong>How to use:</strong> Put a <code>data.tsv</code> file next to this page (first line = headers). Tab-separated values are parsed, paginated locally, and virtualized for speed.</p>
-</div>
-<script>
-  const DATA_URL = 'data.tsv';
-  const PAGE_SIZE = 25;
-  let table=null,allData=[],columns=[];
-  const el=id=>document.getElementById(id);
-  const debounce=(fn,ms=200)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};};
-  function setKPI(t){el('kpi').textContent=t;}
-  function setLoading(t,d=""){el('loading-text').textContent=t;el('loading-detail').textContent=d;}
-  function setProgress(p){el('loading-bar').value=Math.max(0,Math.min(100,p));}
-  function buildColumns(h){return h.map(x=>({title:x,field:x,headerSort:true,widthGrow:1,hozAlign:"left",tooltip:true}));}
-  function applyFilters(){const q=el('q').value.trim().toLowerCase(),c=el('col').value,v=el('val').value.trim().toLowerCase(),f=[];if(c&&v)f.push({field:c,type:"like",value:v});if(q){table.setFilter(r=>Object.values(r.getData()).some(val=>val!=null&&String(val).toLowerCase().includes(q)));}else{table.clearFilter(true);if(f.length)table.setFilter(f);}setKPI(`${table.getDataCount("active").toLocaleString()} / ${allData.length.toLocaleString()} rows shown`);}
-  function loadTSVWithProgress(url){return new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open('GET',url,true);x.responseType='text';x.onprogress=e=>{if(e.lengthComputable){setLoading('Downloading TSV…',`${(e.loaded/1e6).toFixed(2)} / ${(e.total/1e6).toFixed(2)} MB`);setProgress(Math.round((e.loaded/e.total)*100));}else{setLoading('Downloading TSV…',`${(e.loaded/1e6).toFixed(2)} MB`);setProgress(25);}};x.onloadstart=()=>{setLoading('Starting download…');setProgress(5);};x.onerror=()=>rej(new Error('Network error while downloading TSV'));x.onload=()=>{if(x.status>=200&&x.status<300)res(x.responseText);else rej(new Error(`Failed to load TSV (status ${x.status})`));};x.send();});}
-  (async function init(){try{const tsvText=await loadTSVWithProgress(DATA_URL);setLoading('Parsing TSV…');setProgress(70);let rows=0;Papa.parse(tsvText,{delimiter:"\t",header:true,skipEmptyLines:true,worker:true,step:()=>{rows++;if(rows%1000===0){setLoading('Parsing TSV…',`${rows.toLocaleString()} rows`);setProgress(Math.min(90,70+Math.floor(rows/1000)));}},complete:(res)=>{el('loading').style.display='none';el('table').style.display='block';allData=res.data;const h=res.meta.fields||Object.keys(allData[0]||{});columns=buildColumns(h);const sel=el('col');sel.innerHTML='<option value="">Filter by column…</option>'+h.map(x=>`<option value="${x}">${x}</option>`).join('');table=new Tabulator('#table',{data:allData,columns,layout:"fitDataStretch",height:"70vh",pagination:true,paginationMode:"local",paginationSize:PAGE_SIZE,paginationSizeSelector:[25,50,100,250,500],movableColumns:true,placeholder:"No rows match your filters.",virtualDom:true,progressiveRender:true,index:h[0]||undefined});setKPI(`${allData.length.toLocaleString()} rows loaded. Use the search above.`);},error:(err)=>{console.error(err);el('loading-text').textContent='❌ Failed to parse data.tsv';setKPI('Failed to parse data.tsv.');}});}catch(err){console.error(err);el('loading-text').textContent='❌ Failed to load data.tsv';el('loading-detail').textContent=err.message||String(err);setKPI('Failed to load data.tsv — ensure the file exists next to this page.');}})();
-  el('q').addEventListener('input',debounce(applyFilters,250));
-  el('val').addEventListener('input',debounce(applyFilters,250));
-  el('col').addEventListener('change',applyFilters);
-  el('clear').addEventListener('click',()=>{el('q').value='';el('val').value='';el('col').value='';if(table){table.clearFilter(true);table.setData(allData);setKPI(`${allData.length.toLocaleString()} rows loaded.`);}});
-</script>
+
+  <!-- jQuery + DataTables JS (via CDN) -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js" integrity="sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4=" crossorigin="anonymous"></script>
+  <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+  <script>
+    // If your file has a different name or path, change this:
+    const TSV_URL = 'data.tsv';
+
+    async function loadTSV(url) {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      const text = await res.text();
+
+      // Split into lines (handles \n or \r\n)
+      const lines = text.trim().split(/\r?\n/);
+      if (!lines.length) throw new Error('Empty file');
+
+      // First line = header
+      const headers = lines[0].split('\t');
+
+      // Remaining lines = rows
+      const data = [];
+      for (let i = 1; i < lines.length; i++) {
+        const row = lines[i];
+        if (!row.trim()) continue; // skip blank lines
+        const cols = row.split('\t');
+
+        // Pad short rows so lengths match headers
+        while (cols.length < headers.length) cols.push('');
+        data.push(cols.slice(0, headers.length));
+      }
+
+      return { headers, data };
+    }
+
+    (async function init() {
+      const status = document.getElementById('status');
+
+      try {
+        const { headers, data } = await loadTSV(TSV_URL);
+        status.remove();
+
+        // Build DataTables column definitions from headers
+        const columns = headers.map(h => ({ title: h }));
+
+        // Initialize DataTable
+        $('#tsv-table').DataTable({
+          data,
+          columns,
+          pageLength: 25,        // default rows per page
+          deferRender: true,     // speed-up rendering for large datasets
+          processing: true,      // show "Processing..." when filtering
+          autoWidth: false,
+          scrollX: true,         // horizontal scroll if many columns
+          // Built-in search box appears automatically
+        });
+      } catch (err) {
+        status.textContent = `Could not load data.tsv: ${err.message}`;
+      }
+    })();
+  </script>
 </body>
 </html>
